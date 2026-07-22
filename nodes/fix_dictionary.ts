@@ -321,7 +321,6 @@ export const FIELD_NAMES: Record<number, string> = {
   1128: 'ApplVerID',
   1129: 'CstmApplVerID',
   1130: 'RefApplVerID',
-  6706: 'ReservedRange',
 };
 
 // Case-insensitive lookup: field name -> tag number (derived from FIELD_NAMES).
