@@ -1,0 +1,305 @@
+// This file defines the data contracts (messages) for your Axiom package.
+// Every node's --input and --output refers to a message defined here.
+//
+// Run `axiom create message <Name>` to scaffold a new message below.
+// Run `axiom generate` to compile these definitions into language bindings in gen/.
+//
+// DOCUMENTATION
+//   Comments written directly above a message or field declaration are extracted
+//   automatically at publish time and shown in the Axiom registry as documentation.
+//   Write your descriptions there — no separate doc files needed.
+//
+//   Leading comment  (no blank line before the declaration) → registry description ✓
+//   Detached comment (blank line before the declaration)    → ignored by registry  ✗
+//
+// This file is yours to edit. Axiom only appends new message blocks — it never
+// overwrites or removes content you have written.
+
+syntax = "proto3";
+
+package christiangeorgelucas.fix_protocol_tools;
+
+option go_package = ".;gen";
+
+// A single decoded FIX tag=value field: the tag number, the raw (undecoded)
+// value exactly as it appeared on the wire, and — when the embedded FIX
+// data dictionary has an entry for this tag — its human-readable field
+// name (e.g. tag 55 -> "Symbol"). `name` is empty when the tag is not in
+// the dictionary.
+message FixField {
+  int32 tag = 1;
+  string value = 2;
+  string name = 3;
+}
+
+// Raw FIX message text, SOH (0x01), pipe ('|'), or caret-A ("^A", two
+// literal characters) delimited. The delimiter is auto-detected from the
+// text unless `delimiter` overrides it. Input is capped at 1 MiB and
+// 20000 fields; anything larger returns a structured error rather than
+// being parsed.
+message RawFixMessage {
+  string raw = 1;
+  // Optional override: "SOH", "PIPE", or "CARET". Empty = auto-detect.
+  string delimiter = 2;
+}
+
+// An ordered list of every tag=value field found in a FIX message, in wire
+// order, exactly as they appeared (not decoded, not deduplicated).
+message FieldListOutput {
+  // False iff a structured error prevented parsing; check error first.
+  bool ok = 1;
+  string error = 2;
+  repeated FixField fields = 3;
+  // Which delimiter was actually used: "SOH", "PIPE", or "CARET".
+  string delimiter_used = 4;
+}
+
+// A FIX message's fields as a tag(string)->value map. Because a map
+// collapses duplicate keys, a tag repeated in the wire message (legitimate
+// inside repeating groups) is represented here by its LAST occurrence only
+// — use ParseFields or ExtractRepeatingGroup when duplicate/grouped tags
+// matter. `duplicate_tags` lists which tag numbers occurred more than once,
+// as a signal that this map view lost information for them.
+message FieldMapOutput {
+  bool ok = 1;
+  string error = 2;
+  // Keyed by decimal tag number as a string (e.g. "55" -> "AAPL").
+  map<string, string> fields = 3;
+  repeated int32 duplicate_tags = 4;
+  string delimiter_used = 5;
+}
+
+// Look up one field by its numeric FIX tag.
+message GetFieldByTagInput {
+  string raw = 1;
+  string delimiter = 2;
+  int32 tag = 3;
+}
+
+// Look up one field by its FIX dictionary field NAME (e.g. "Symbol"),
+// case-insensitive.
+message GetFieldByNameInput {
+  string raw = 1;
+  string delimiter = 2;
+  string field_name = 3;
+}
+
+message FieldValueOutput {
+  bool ok = 1;
+  string error = 2;
+  // True iff the requested tag/name was present in the message.
+  bool found = 3;
+  int32 tag = 4;
+  string value = 5;
+  string name = 6;
+}
+
+// A message fully decoded with human-readable field names attached from
+// the embedded FIX data dictionary, plus the MsgType (tag 35) decoded to
+// its own name (e.g. "D" -> "NewOrderSingle").
+message DecodedMessageOutput {
+  bool ok = 1;
+  string error = 2;
+  repeated FixField fields = 3;
+  string msg_type = 4;
+  string msg_type_name = 5;
+  string delimiter_used = 6;
+}
+
+message MsgTypeOutput {
+  bool ok = 1;
+  string error = 2;
+  // True iff tag 35 (MsgType) was present.
+  bool found = 3;
+  // The raw MsgType code, e.g. "D".
+  string msg_type = 4;
+  // The decoded name, e.g. "NewOrderSingle". Empty if the code is not in
+  // the embedded dictionary (still a valid, just unrecognized, code).
+  string msg_type_name = 5;
+}
+
+// The FIX standard header fields: BeginString(8), BodyLength(9),
+// MsgType(35), SenderCompID(49), TargetCompID(56), MsgSeqNum(34), and
+// SendingTime(52). Any header field absent from the message leaves its
+// output field at its zero value and its tag number appears in
+// `missing_fields` — check `missing_fields` to distinguish "absent" from
+// a genuine empty string / zero.
+message HeaderFieldsOutput {
+  bool ok = 1;
+  string error = 2;
+  string begin_string = 3;
+  int32 body_length = 4;
+  string msg_type = 5;
+  string msg_type_name = 6;
+  string sender_comp_id = 7;
+  string target_comp_id = 8;
+  int32 msg_seq_num = 9;
+  string sending_time = 10;
+  repeated int32 missing_fields = 11;
+}
+
+// The common order-related fields, decoded: Symbol(55), Side(54, decoded
+// e.g. "Buy"), OrderQty(38), Price(44), OrdType(40, decoded e.g. "Limit"),
+// TimeInForce(59, decoded e.g. "Day"). OrderQty and Price are kept as the
+// exact wire strings (FIX numeric fields are decimal text; parsing them as
+// float would risk precision loss) — parse them yourself if you need a
+// number. Any field absent from the message has its tag number in
+// `missing_fields`.
+message OrderFieldsOutput {
+  bool ok = 1;
+  string error = 2;
+  string symbol = 3;
+  string side = 4;
+  string side_name = 5;
+  string order_qty = 6;
+  string price = 7;
+  string ord_type = 8;
+  string ord_type_name = 9;
+  string time_in_force = 10;
+  string time_in_force_name = 11;
+  repeated int32 missing_fields = 12;
+}
+
+// Decode one already-extracted tag/value pair (e.g. from ParseFields) to
+// its enumerated meaning using the embedded FIX dictionary — e.g. tag 54
+// value "1" -> "Buy". Works for any tag the dictionary has an enum table
+// for; a tag with no known enum table, or a value not in that table,
+// returns found=false.
+message DecodeEnumInput {
+  int32 tag = 1;
+  string value = 2;
+}
+
+message EnumDecodeOutput {
+  bool ok = 1;
+  string error = 2;
+  bool found = 3;
+  string meaning = 4;
+}
+
+// Validates that the declared BodyLength (tag 9) matches the actual byte
+// length of the message body — the bytes strictly between the end of the
+// BodyLength field and the start of the CheckSum (tag 10) field, per the
+// FIX spec's definition of BodyLength.
+message ValidationOutput {
+  bool ok = 1;
+  string error = 2;
+  bool valid = 3;
+  int32 declared_body_length = 4;
+  int32 actual_body_length = 5;
+}
+
+// Validates that the declared CheckSum (tag 10) matches the checksum
+// computed over the message per the FIX spec algorithm: the sum, modulo
+// 256, of every raw byte from the start of the message up to (but not
+// including) the "10=" field, formatted as a zero-padded 3-digit decimal
+// string.
+message CheckSumValidationOutput {
+  bool ok = 1;
+  string error = 2;
+  bool valid = 3;
+  string declared_checksum = 4;
+  string computed_checksum = 5;
+}
+
+// Text to compute a FIX CheckSum over. If the text contains a trailing
+// "10=nnn<delim>" CheckSum field, it is stripped before computing (per the
+// spec, CheckSum is never computed over itself); everything else in the
+// text is included, byte-for-byte.
+message ComputeCheckSumInput {
+  string raw = 1;
+  string delimiter = 2;
+}
+
+message ComputeCheckSumOutput {
+  bool ok = 1;
+  string error = 2;
+  // Zero-padded 3-digit decimal string, e.g. "062".
+  string checksum = 3;
+}
+
+// A FIX LOG: one or more complete FIX messages concatenated back-to-back
+// (as commonly found in session/application log files), each starting
+// with a BeginString (tag 8) field. Capped at 4 MiB and 5000 messages.
+message SplitLogInput {
+  string raw = 1;
+  string delimiter = 2;
+}
+
+message SplitLogOutput {
+  bool ok = 1;
+  string error = 2;
+  repeated string messages = 3;
+  int32 count = 4;
+}
+
+// Extracts a FIX repeating group as a structured array of entries. `count_tag`
+// is the group's NoXXX counter tag (e.g. 268 for NoMDEntries, 453 for
+// NoPartyIDs, 73 for NoOrders). Grouping uses the standard delimiter-tag
+// heuristic: the tag immediately following the counter field starts each
+// entry, and every subsequent occurrence of that same tag begins a new
+// entry — no group schema/dictionary is required.
+message ExtractGroupInput {
+  string raw = 1;
+  string delimiter = 2;
+  int32 count_tag = 3;
+}
+
+// One repeating-group entry: its fields, in wire order.
+message FixFieldGroup {
+  repeated FixField fields = 1;
+}
+
+message RepeatingGroupOutput {
+  bool ok = 1;
+  string error = 2;
+  // True iff count_tag was present in the message.
+  bool found = 3;
+  // The declared count (the counter field's own value).
+  int32 declared_count = 4;
+  repeated FixFieldGroup entries = 5;
+}
+
+// Identifies the FIX protocol version from BeginString (tag 8), e.g.
+// "FIX.4.2" -> major=4, minor=2. FIXT.1.1 (the FIX 5.0+ transport version)
+// is reported with major=1, minor=1 and version_name "FIXT.1.1".
+message FixVersionOutput {
+  bool ok = 1;
+  string error = 2;
+  bool found = 3;
+  string begin_string = 4;
+  int32 major = 5;
+  int32 minor = 6;
+}
+
+// Every distinct tag number present in the message, in order of first
+// appearance (no duplicates), plus how many unique tags that is.
+message TagListOutput {
+  bool ok = 1;
+  string error = 2;
+  repeated int32 tags = 3;
+  int32 unique_count = 4;
+}
+
+// Total field occurrences in the message (including tags that repeat,
+// e.g. inside repeating groups) versus the count of distinct tag numbers
+// — comparing the two tells you whether the message has any repeated tags.
+message FieldCountOutput {
+  bool ok = 1;
+  string error = 2;
+  int32 total_fields = 3;
+  int32 unique_tags = 4;
+}
+
+// Classifies a message as "admin" (session-level: Heartbeat, TestRequest,
+// ResendRequest, Reject, SequenceReset, Logout, Logon), "application"
+// (any other recognized MsgType — orders, executions, market data, etc.),
+// or "unknown" (MsgType code not in the embedded dictionary — still a
+// valid FIX message, just an unrecognized or custom message type).
+message ClassifyOutput {
+  bool ok = 1;
+  string error = 2;
+  string msg_type = 3;
+  string msg_type_name = 4;
+  string category = 5;
+}

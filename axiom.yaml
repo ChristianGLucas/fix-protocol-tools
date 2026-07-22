@@ -1,0 +1,193 @@
+name: christiangeorgelucas/fix-protocol-tools
+version: 0.1.0
+language: typescript
+license: MIT
+author: Christian George Lucas
+description: >-
+  Deterministic parsing, decoding, and integrity validation of FIX
+  (Financial Information eXchange) protocol messages — FIX 4.2/4.4/5.0,
+  the dominant electronic-trading messaging standard. A FIX message is a
+  SOH-delimited (0x01, often shown as '|' or "^A") sequence of
+  tag=value fields (e.g. `8=FIX.4.2|9=178|35=D|55=AAPL|54=1|38=100|
+  44=25.50|10=123`); this package tokenizes that wire format and pairs it
+  with an EMBEDDED FIX data dictionary — tag number to field name,
+  message-type codes, and enumerated field-value meanings, hand-compiled
+  from the public FIX 4.2/4.4 specification — to decode messages into
+  human-readable structures, extract and validate the standard header and
+  common order fields, extract repeating groups, and verify the
+  BodyLength/CheckSum wire-integrity fields against an independently
+  computed value. Distinct from money-tools (currency arithmetic),
+  quant-finance-tools (option/bond pricing), http-message-tools (raw
+  HTTP/1.x wire messages), and packet-tools (network-layer packets): this
+  package is specifically the FIX application-protocol wire format. Every
+  node is a pure, deterministic single-input to single-output transform —
+  no network, no FIX session/socket, no wall-clock, no randomness. Input
+  is capped at 1 MiB / 20000 fields per message (4 MiB / 5000 messages for
+  a concatenated log); a malformed message returns a structured error
+  rather than crashing.
+tags:
+  - fix
+  - fix-protocol
+  - financial-information-exchange
+  - trading
+  - electronic-trading
+  - order-management
+  - market-data
+  - fintech
+  - checksum
+  - protocol-parsing
+nodes:
+    - name: ParseFields
+      input: RawFixMessage
+      output: FieldListOutput
+      description: >-
+        Parses a raw FIX message into an ordered list of {tag, value}
+        fields, exactly as they appeared on the wire (no dictionary
+        decoding, no dedup) — the lowest-level view of a message. Handles
+        SOH (0x01), '|', or literal "^A" delimited input, auto-detecting
+        which one was used unless an override is given. Returns a
+        structured error for malformed input rather than throwing.
+    - name: ParseToMap
+      input: RawFixMessage
+      output: FieldMapOutput
+      description: >-
+        Parses a raw FIX message into a tag(string)->value map. A tag
+        that repeats on the wire (legitimate inside repeating groups) is
+        represented by its LAST occurrence only, with the affected tag
+        numbers listed in duplicate_tags — use ParseFields or
+        ExtractRepeatingGroup when duplicate/grouped tags matter.
+    - name: GetFieldByTag
+      input: GetFieldByTagInput
+      output: FieldValueOutput
+      description: >-
+        Gets the value of one field by its numeric FIX tag (e.g. tag 55
+        for Symbol), with its dictionary name attached when known.
+        found=false (not an error) when the tag is syntactically valid
+        but simply absent from the message.
+    - name: GetFieldByName
+      input: GetFieldByNameInput
+      output: FieldValueOutput
+      description: >-
+        Gets the value of one field by its FIX dictionary field NAME
+        (e.g. "Symbol" for tag 55), case-insensitive. found=false both
+        when the name isn't a recognized dictionary field and when it is
+        recognized but absent from this particular message.
+    - name: DecodeMessage
+      input: RawFixMessage
+      output: DecodedMessageOutput
+      description: >-
+        Decodes a FIX message with human-readable field NAMES attached
+        from the embedded FIX data dictionary (tag 55 -> "Symbol", etc.),
+        plus the MsgType (tag 35) decoded to its own name (e.g. "D" ->
+        "NewOrderSingle").
+    - name: GetMsgType
+      input: RawFixMessage
+      output: MsgTypeOutput
+      description: >-
+        Extracts the MsgType (tag 35) and decodes it to its name using
+        the embedded FIX dictionary (e.g. "D" -> "NewOrderSingle", "8" ->
+        "ExecutionReport"). found=true with an empty name for a
+        syntactically valid but unrecognized/custom MsgType code.
+    - name: GetHeaderFields
+      input: RawFixMessage
+      output: HeaderFieldsOutput
+      description: >-
+        Extracts the FIX standard header fields: BeginString(8),
+        BodyLength(9), MsgType(35, plus decoded name), SenderCompID(49),
+        TargetCompID(56), MsgSeqNum(34), and SendingTime(52). Any header
+        field absent from the message has its tag number listed in
+        missing_fields, distinguishing "absent" from a genuinely
+        empty/zero wire value.
+    - name: GetOrderFields
+      input: RawFixMessage
+      output: OrderFieldsOutput
+      description: >-
+        Extracts the common order-related fields, decoded: Symbol(55),
+        Side(54, plus decoded name e.g. "Buy"), OrderQty(38), Price(44),
+        OrdType(40, plus decoded name e.g. "Limit"), TimeInForce(59,
+        plus decoded name e.g. "Day"). OrderQty/Price are kept as exact
+        wire strings to avoid float precision loss. Absent fields are
+        listed in missing_fields.
+    - name: DecodeEnumValue
+      input: DecodeEnumInput
+      output: EnumDecodeOutput
+      description: >-
+        Decodes one already-extracted tag/value pair (e.g. from
+        ParseFields) to its enumerated meaning using the embedded FIX
+        dictionary — e.g. tag 54 value "1" -> "Buy" — including Y/N
+        boolean-flag fields decoded as "Yes"/"No". found=false (not an
+        error) when the tag has no known enum table or the value isn't
+        in it.
+    - name: ValidateBodyLength
+      input: RawFixMessage
+      output: ValidationOutput
+      description: >-
+        Validates that the declared BodyLength (tag 9) matches the
+        actual byte length of the message body — the bytes strictly
+        between the BodyLength field and the CheckSum (tag 10) field —
+        per the FIX spec's definition of BodyLength.
+    - name: ValidateCheckSum
+      input: RawFixMessage
+      output: CheckSumValidationOutput
+      description: >-
+        Validates that the declared CheckSum (tag 10) matches the
+        checksum computed over the message per the FIX spec algorithm:
+        the sum, modulo 256, of every raw byte up to the "10=" field. The
+        checksum is computed over the LITERAL bytes supplied — a message
+        re-rendered from SOH to '|' (or vice versa) without recomputing
+        its trailer will correctly report invalid, since SOH and '|' are
+        different byte values.
+    - name: ComputeCheckSum
+      input: ComputeCheckSumInput
+      output: ComputeCheckSumOutput
+      description: >-
+        Computes the correct FIX CheckSum for a message: the sum, modulo
+        256, of every raw byte up to (but not including) the "10="
+        field, as a zero-padded 3-digit string. Strips any existing
+        tag-10 field before computing, so it works whether or not the
+        input already carries a (possibly wrong) checksum.
+    - name: SplitLog
+      input: SplitLogInput
+      output: SplitLogOutput
+      description: >-
+        Splits a FIX LOG — one or more complete FIX messages concatenated
+        back-to-back, as commonly found in session/application log files
+        — into individual message strings, detected at each BeginString
+        (tag 8). Capped at 4 MiB and 5000 messages.
+    - name: ExtractRepeatingGroup
+      input: ExtractGroupInput
+      output: RepeatingGroupOutput
+      description: >-
+        Extracts a FIX repeating group (e.g. NoMDEntries, NoPartyIDs) as
+        a structured array of entries, using the standard schema-less
+        delimiter-tag heuristic (no group dictionary required). found is
+        false if the counter tag is absent from the message.
+    - name: GetFixVersion
+      input: RawFixMessage
+      output: FixVersionOutput
+      description: >-
+        Identifies the FIX protocol version from BeginString (tag 8),
+        e.g. "FIX.4.2" -> major=4, minor=2. FIXT.1.1 (the FIX 5.0+
+        transport-layer version) is reported as major=1, minor=1.
+    - name: ListTags
+      input: RawFixMessage
+      output: TagListOutput
+      description: >-
+        Lists every distinct tag number present in the message, in order
+        of first appearance (no duplicates), plus the unique-tag count.
+    - name: CountFields
+      input: RawFixMessage
+      output: FieldCountOutput
+      description: >-
+        Counts total field occurrences (including repeated tags, e.g.
+        inside repeating groups) versus the count of distinct tag
+        numbers, so a caller can tell at a glance whether any tag
+        repeats.
+    - name: ClassifyMessage
+      input: RawFixMessage
+      output: ClassifyOutput
+      description: >-
+        Classifies a message as "admin" (session-level: Heartbeat,
+        TestRequest, ResendRequest, Reject, SequenceReset, Logout,
+        Logon), "application" (any other MsgType the embedded dictionary
+        recognizes), or "unknown" (MsgType absent or unrecognized).
