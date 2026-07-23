@@ -2,7 +2,7 @@
 
 Deterministic parsing, decoding, and integrity validation of **FIX** (Financial
 Information eXchange) protocol messages — FIX 4.2/4.4/5.0, the dominant
-electronic-trading messaging standard. Built for the [Axiom](https://axiom.dev)
+electronic-trading messaging standard. Built for the [Axiom](https://axiomide.com)
 marketplace, published under the `christiangeorgelucas` handle.
 
 A FIX message is a SOH-delimited (`0x01`, often shown as `|` or `^A`) sequence
