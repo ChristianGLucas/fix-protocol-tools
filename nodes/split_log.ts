@@ -8,7 +8,7 @@ import { splitLogCore, FixInputError } from './fix_helpers';
  * individual message strings. A new message is detected wherever a
  * BeginString (tag 8) field starts, after the first one. Assumes the whole
  * log uses one consistent delimiter throughout (auto-detected, or
- * overridden via `delimiter`). Capped at 4 MiB and 5000 messages.
+ * overridden via `delimiter`).
  *
  * @param ax - Platform context: ax.log for logging, ax.secrets for secrets.
  */

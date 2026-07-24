@@ -34,9 +34,7 @@ message FixField {
 
 // Raw FIX message text, SOH (0x01), pipe ('|'), or caret-A ("^A", two
 // literal characters) delimited. The delimiter is auto-detected from the
-// text unless `delimiter` overrides it. Input is capped at 1 MiB and
-// 20000 fields; anything larger returns a structured error rather than
-// being parsed.
+// text unless `delimiter` overrides it.
 message RawFixMessage {
   string raw = 1;
   // Optional override: "SOH", "PIPE", or "CARET". Empty = auto-detect.
@@ -220,7 +218,7 @@ message ComputeCheckSumOutput {
 
 // A FIX LOG: one or more complete FIX messages concatenated back-to-back
 // (as commonly found in session/application log files), each starting
-// with a BeginString (tag 8) field. Capped at 4 MiB and 5000 messages.
+// with a BeginString (tag 8) field.
 message SplitLogInput {
   string raw = 1;
   string delimiter = 2;
