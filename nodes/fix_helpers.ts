@@ -16,26 +16,6 @@
 import { FixField } from '../gen/messages_pb';
 import { FIELD_NAMES, NAME_TO_TAG, MSG_TYPES } from './fix_dictionary';
 
-// --- Input-surface safety bounds --------------------------------------------
-
-// A single FIX message larger than this is rejected before parsing. 1 MiB
-// comfortably covers any real single order/execution/market-data message
-// (which are typically well under 4 KB) with wide headroom.
-export const MAX_MESSAGE_BYTES = 1_048_576;
-// Cheap pre-check on JS string length (O(1)) before the more precise
-// Buffer.byteLength pass, so a pathologically huge input is rejected
-// without ever touching an O(n) UTF-8 byte-length scan.
-const MAX_MESSAGE_CHARS_PRECHECK = 4_000_000;
-export const MAX_FIELDS = 20_000;
-
-// A FIX LOG (multiple concatenated messages) is allowed to be larger, but
-// still bounded — 4 MiB matches the Axiom node transport ceiling, so a log
-// too large to ever be delivered in one call is rejected with a clear error
-// rather than silently truncated.
-export const MAX_LOG_BYTES = 4_000_000;
-const MAX_LOG_CHARS_PRECHECK = 8_000_000;
-export const MAX_LOG_MESSAGES = 5_000;
-
 export class FixInputError extends Error {}
 
 // --- Delimiter handling -------------------------------------------------------
@@ -76,26 +56,12 @@ export function resolveDelimiter(raw: string, override: string | undefined | nul
 // --- Bounds checks -----------------------------------------------------------
 
 export function checkMessageBounds(raw: string): void {
-  if (raw.length > MAX_MESSAGE_CHARS_PRECHECK) {
-    throw new FixInputError(`input is ${raw.length} characters, which exceeds the maximum of ${MAX_MESSAGE_CHARS_PRECHECK}`);
-  }
-  const byteLen = Buffer.byteLength(raw, 'utf8');
-  if (byteLen > MAX_MESSAGE_BYTES) {
-    throw new FixInputError(`input is ${byteLen} bytes, which exceeds the maximum of ${MAX_MESSAGE_BYTES}`);
-  }
   if (raw.trim() === '') {
     throw new FixInputError('input is empty');
   }
 }
 
 export function checkLogBounds(raw: string): void {
-  if (raw.length > MAX_LOG_CHARS_PRECHECK) {
-    throw new FixInputError(`input is ${raw.length} characters, which exceeds the maximum of ${MAX_LOG_CHARS_PRECHECK}`);
-  }
-  const byteLen = Buffer.byteLength(raw, 'utf8');
-  if (byteLen > MAX_LOG_BYTES) {
-    throw new FixInputError(`input is ${byteLen} bytes, which exceeds the maximum of ${MAX_LOG_BYTES}`);
-  }
   if (raw.trim() === '') {
     throw new FixInputError('input is empty');
   }
@@ -119,16 +85,12 @@ export interface ParsedMessage {
  * delimiter. Every non-empty segment must have the shape `<digits>=<value>`
  * (only the FIRST '=' splits tag from value, so a value itself containing
  * '=' is preserved intact); a segment that doesn't match throws
- * FixInputError naming the offending segment. Throws if bounds are exceeded
- * or the field count exceeds MAX_FIELDS.
+ * FixInputError naming the offending segment. Throws if bounds are exceeded.
  */
 export function parseFieldsCore(raw: string, delimiterOverride: string | undefined | null): ParsedMessage {
   checkMessageBounds(raw);
   const { name, chars } = resolveDelimiter(raw, delimiterOverride);
   const segments = raw.split(chars).filter((s) => s.length > 0);
-  if (segments.length > MAX_FIELDS) {
-    throw new FixInputError(`input has ${segments.length} fields, which exceeds the maximum of ${MAX_FIELDS}`);
-  }
   const fields: ParsedField[] = [];
   for (const seg of segments) {
     const eq = seg.indexOf('=');
@@ -243,9 +205,6 @@ export function splitLogCore(raw: string, delimiterOverride: string | undefined 
     current.push(seg);
   }
   if (current.length > 0) messages.push(current.join(chars) + chars);
-  if (messages.length > MAX_LOG_MESSAGES) {
-    throw new FixInputError(`log contains ${messages.length} messages, which exceeds the maximum of ${MAX_LOG_MESSAGES}`);
-  }
   return { messages, delimiterName: name };
 }
 
